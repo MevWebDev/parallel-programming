@@ -48,7 +48,7 @@ def analyze_file_recursive(file_path, search_term):
                     # Zwykła linia - zlicz słowa
                     occurrences = count_word_occurrences(search_term, stripped_line)
                     word_count += occurrences
-                    print(stripped_line)
+                    # print(stripped_line)
                     
                 elif os.path.isfile(nested_file):
                     # Znaleziono zagnieżdżony plik - utwórz proces potomny
