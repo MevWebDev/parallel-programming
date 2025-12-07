@@ -2,6 +2,7 @@ import os
 import sys
 import signal
 import time
+import errno
 
 SERVER_FIFO = "db_server.fifo"
 DB = {
@@ -17,64 +18,79 @@ running = True
 # --- Obsługa sygnałów ---
 def stop_server(signum, frame):
     print("\nOtrzymano SIGUSR1, zamykanie serwera...")
-    global running
-    running = False
+    sys.exit(0)
 
-signal.signal(signal.SIGHUP, signal.SIG_IGN)   # Ignoruj SIGHUP
-signal.signal(signal.SIGTERM, signal.SIG_IGN)  # Ignoruj SIGTERM
-signal.signal(signal.SIGUSR1, stop_server)     # SIGUSR1 kończy serwer
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGUSR1, stop_server)
 
 # --- Główna funkcja serwera ---
 def run_server():
-    global running
     
-    # Utwórz FIFO serwera
+    
     if not os.path.exists(SERVER_FIFO):
         os.mkfifo(SERVER_FIFO)
 
     print(f"Serwer uruchomiony. PID: {os.getpid()}")
     print(f"Aby zakończyć: kill -USR1 {os.getpid()}")
-
-    while running:
-        print("\nCzekam na klienta...")
+    
+    fifo = None
+    fifo_write = -1
+    
+    try:
+        print("\nCzekam na klientów...")
+        # Otwórz do odczytu (blokuje, aż ktoś otworzy do zapisu)
+        fifo = open(SERVER_FIFO, "r")
         
-        # Otwórz FIFO (blokuje aż klient wyśle dane)
-        with open(SERVER_FIFO, "r") as fifo:
-            request = fifo.read().strip()
-
-        if not request:
-            continue
-
-        print(f"Otrzymano: {request}")
+        # Otwórz do zapisu, żeby kolejka nie zamykała się po zakończeniu klienta
+        fifo_write = os.open(SERVER_FIFO, os.O_WRONLY | os.O_NDELAY)
         
-        # Opóźnienie dla testowania wielu klientów
-        print("Przetwarzam (5 sek)...")
-        time.sleep(5)
+        while running:
+            # Blokujący odczyt
+            try:
+                request = fifo.readline().strip()
+            except OSError as e:
+                if e.errno == errno.EINTR:  # Przerwane przez sygnał
+                    
+                    continue
+                raise
 
-        # Parsuj żądanie "PID:ID"
-        try:
-            pid_str, id_str = request.split(":")
-            client_pid = int(pid_str)
-            query_id = int(id_str)
+            # Jeśli pusta linia, kontynuuj (ale nie zamykaj FIFO!)
+            if not request:
+                continue
 
-            # Znajdź w bazie
-            response = DB.get(query_id, "Nie ma")
+            # Tutaj mamy prawdziwe żądanie
+            print(f"\nOtrzymano: {request}")
+            print("Przetwarzam (5 sek)...")
+            time.sleep(5)
 
-            # Wyślij odpowiedź (pojedyncze os.write = niepodzielność)
-            client_fifo = f"client_fifo_{client_pid}"
-            if os.path.exists(client_fifo):
-                fd = os.open(client_fifo, os.O_WRONLY)
-                os.write(fd, response.encode('utf-8'))  # Pojedynczy zapis
-                os.close(fd)
-                print(f"Wysłano: {response}")
+            try:
+                # Format: "ID:ścieżka_do_fifo"
+                id_str, client_fifo_path = request.split(":", 1)
+                query_id = int(id_str)
 
-        except (ValueError, OSError) as e:
-            print(f"Błąd: {e}")
+                response = DB.get(query_id, "Nie ma")
 
-    # Sprzątanie
-    if os.path.exists(SERVER_FIFO):
-        os.unlink(SERVER_FIFO)
-    print("Serwer zakończony.")
+                # NIEPODZIELNE WYSŁANIE (os.write)
+                if os.path.exists(client_fifo_path):
+                    fd = os.open(client_fifo_path, os.O_WRONLY)
+                    os.write(fd, response.encode('utf-8'))
+                    os.close(fd)
+                    print(f"Wysłano: {response}")
+                else:
+                    print(f"Błąd: FIFO klienta nie istnieje: {client_fifo_path}")
+
+            except (ValueError, OSError) as e:
+                print(f"Błąd: {e}")
+                
+    finally:
+        if fifo:
+            fifo.close()
+        if fifo_write != -1:
+            os.close(fifo_write)
+        if os.path.exists(SERVER_FIFO):
+            os.unlink(SERVER_FIFO)
+        print("\nSerwer zakończony.")
 
 if __name__ == "__main__":
     run_server()
