@@ -3,74 +3,74 @@ import sys
 import time
 
 # Stałe klucze dla zasobów IPC
-KEY_BASE = 2000
+BASE_KEY = 2000
 NULL_CHAR = '\0'
 
 # Funkcje pomocnicze do obsługi pamięci współdzielonej
-def pisz(mem, s):
+def write_to_shared_memory(memory, text):
     """Zapisuje ciąg znaków do pamięci współdzielonej."""
-    s += NULL_CHAR
-    s = s.encode()
-    mem.write(s)
+    text += NULL_CHAR
+    text_encoded = text.encode()
+    memory.write(text_encoded)
 
-def czytaj(mem):
+def read_from_shared_memory(memory):
     """Odczytuje ciąg znaków z pamięci współdzielonej."""
-    s = mem.read()
-    s = s.decode()
-    i = s.find(NULL_CHAR)
-    if i != -1:
-        s = s[:i]
-    return s
+    data = memory.read()
+    text = data.decode()
+    null_index = text.find(NULL_CHAR)
+    if null_index != -1:
+        text = text[:null_index]
+    return text
 
 def main():
     # Klucze dla poszczególnych zasobów IPC
     # Używamy stałych kluczy, aby oba procesy mogły się odnaleźć
-    key_shm1 = KEY_BASE + 1  # Pamięć dla Gracza 1
-    key_shm2 = KEY_BASE + 2  # Pamięć dla Gracza 2
-    key_sem1 = KEY_BASE + 3  # Semafor: Gracz 1 zapisał
-    key_sem2 = KEY_BASE + 4  # Semafor: Gracz 2 zapisał
-    key_sem3 = KEY_BASE + 5  # Semafor: Gracz 1 odczytał
-    key_sem4 = KEY_BASE + 6  # Semafor: Gracz 2 odczytał
+    key_memory_player1 = BASE_KEY + 1  # Pamięć dla Gracza 1
+    key_memory_player2 = BASE_KEY + 2  # Pamięć dla Gracza 2
+    key_sem_p1_wrote   = BASE_KEY + 3  # Semafor: Gracz 1 zapisał
+    key_sem_p2_wrote   = BASE_KEY + 4  # Semafor: Gracz 2 zapisał
+    key_sem_p1_read    = BASE_KEY + 5  # Semafor: Gracz 1 odczytał
+    key_sem_p2_read    = BASE_KEY + 6  # Semafor: Gracz 2 odczytał
 
-    player_num = 0
+    player_number = 0
     
     # Zmienne na zasoby
-    shm1 = None
-    shm2 = None
-    sem1 = None 
-    sem2 = None 
-    sem3 = None 
-    sem4 = None 
+    shared_memory_p1 = None
+    shared_memory_p2 = None
+    sem_p1_wrote = None 
+    sem_p2_wrote = None 
+    sem_p1_read = None 
+    sem_p2_read = None 
 
     try:
         # Próba utworzenia pamięci współdzielonej dla Gracza 1 z flagą IPC_CREX.
         # Jeśli się uda (nie ma błędu), to znaczy, że jesteśmy pierwszym procesem -> Gracz 1.
-        shm1 = sysv_ipc.SharedMemory(key_shm1, sysv_ipc.IPC_CREX, mode=0o600, size=1024)
+        shared_memory_p1 = sysv_ipc.SharedMemory(key_memory_player1, sysv_ipc.IPC_CREX, mode=0o600, size=1024)
         print("Jestem Gracz 1")
-        player_num = 1
+        player_number = 1
         
         # Gracz 1 tworzy pozostałe zasoby (pamięć dla G2 i semafory)
-        shm2 = sysv_ipc.SharedMemory(key_shm2, sysv_ipc.IPC_CREAT, mode=0o600, size=1024)
+        shared_memory_p2 = sysv_ipc.SharedMemory(key_memory_player2, sysv_ipc.IPC_CREAT, mode=0o600, size=1024)
         
         # Tworzenie semaforów z wartością początkową 0 (zablokowane)
-        sem1 = sysv_ipc.Semaphore(key_sem1, sysv_ipc.IPC_CREAT, initial_value=0)
-        sem2 = sysv_ipc.Semaphore(key_sem2, sysv_ipc.IPC_CREAT, initial_value=0)
-        sem3 = sysv_ipc.Semaphore(key_sem3, sysv_ipc.IPC_CREAT, initial_value=0)
-        sem4 = sysv_ipc.Semaphore(key_sem4, sysv_ipc.IPC_CREAT, initial_value=0)
+        sem_p1_wrote = sysv_ipc.Semaphore(key_sem_p1_wrote, sysv_ipc.IPC_CREAT, initial_value=0)
+        sem_p2_wrote = sysv_ipc.Semaphore(key_sem_p2_wrote, sysv_ipc.IPC_CREAT, initial_value=0)
+        sem_p1_read  = sysv_ipc.Semaphore(key_sem_p1_read, sysv_ipc.IPC_CREAT, initial_value=0)
+        sem_p2_read  = sysv_ipc.Semaphore(key_sem_p2_read, sysv_ipc.IPC_CREAT, initial_value=0)
 
     except sysv_ipc.ExistentialError:
         # Jeśli pamięć już istnieje (błąd ExistentialError), to znaczy, że Gracz 1 już działa.
         # Zatem my jesteśmy Graczem 2.
         print("Jestem Gracz 2")
-        player_num = 2
+        player_number = 2
         
         # Gracz 2 podłącza się do istniejących zasobów utworzonych przez Gracza 1
-        shm1 = sysv_ipc.SharedMemory(key_shm1)
-        shm2 = sysv_ipc.SharedMemory(key_shm2)
-        sem1 = sysv_ipc.Semaphore(key_sem1)
-        sem2 = sysv_ipc.Semaphore(key_sem2)
-        sem3 = sysv_ipc.Semaphore(key_sem3)
-        sem4 = sysv_ipc.Semaphore(key_sem4)
+        shared_memory_p1 = sysv_ipc.SharedMemory(key_memory_player1)
+        shared_memory_p2 = sysv_ipc.SharedMemory(key_memory_player2)
+        sem_p1_wrote = sysv_ipc.Semaphore(key_sem_p1_wrote)
+        sem_p2_wrote = sysv_ipc.Semaphore(key_sem_p2_wrote)
+        sem_p1_read  = sysv_ipc.Semaphore(key_sem_p1_read)
+        sem_p2_read  = sysv_ipc.Semaphore(key_sem_p2_read)
 
     wins = 0
     
@@ -82,7 +82,7 @@ def main():
             my_choice = ""
             opponent_choice = ""
             
-            if player_num == 1:
+            if player_number == 1:
                 # --- RUCH GRACZA 1 ---
                 
                 # 1. Gracz 1 wybiera kartę
@@ -93,17 +93,17 @@ def main():
                     print("Nieprawidłowy wybór.")
                 
                 # Zapis wyboru do pamięci współdzielonej PW1
-                pisz(shm1, my_choice)
+                write_to_shared_memory(shared_memory_p1, my_choice)
                 
                 # Sygnalizacja: Gracz 1 zapisał dane (podnosi semafor 1)
-                sem1.release() 
+                sem_p1_wrote.release() 
                 
                 print("Czekam na ruch Gracza 2...")
                 # Oczekiwanie: Aż Gracz 2 zapisze swój wybór (opuszcza semafor 2)
-                sem2.acquire() 
+                sem_p2_wrote.acquire() 
                 
                 # 3. Gracz 1 odczytuje wybór Gracza 2 z pamięci PW2
-                opponent_choice = czytaj(shm2)
+                opponent_choice = read_from_shared_memory(shared_memory_p2)
                 print(f"Gracz 2 wybrał: {opponent_choice}")
                 print(f"Mój wybór: {my_choice}")
                 
@@ -115,19 +115,19 @@ def main():
                     wins += 1
                 
                 # Sygnalizacja: Gracz 1 zakończył odczyt (podnosi semafor 3)
-                sem3.release() 
+                sem_p1_read.release() 
                 
                 print("Czekam na zakończenie tury przez Gracza 2...")
                 # Bariera synchronizacyjna: Czekamy aż Gracz 2 też zakończy odczyt (opuszcza semafor 4)
                 # To zapewnia, że nie przejdziemy do nowej tury, dopóki obie strony nie skończą obecnej.
-                sem4.acquire() 
-
+                sem_p2_read.acquire() 
+                
             else: # Gracz 2
                 # --- RUCH GRACZA 2 ---
                 
                 print("Czekam na ruch Gracza 1...")
                 # Oczekiwanie: Aż Gracz 1 zapisze swój wybór (opuszcza semafor 1)
-                sem1.acquire() 
+                sem_p1_wrote.acquire() 
                 
                 # 2. Gracz 2 zgaduje pozycję
                 while True:
@@ -137,18 +137,18 @@ def main():
                     print("Nieprawidłowy wybór.")
                 
                 # Zapis wyboru do pamięci współdzielonej PW2
-                pisz(shm2, my_choice)
+                write_to_shared_memory(shared_memory_p2, my_choice)
                 
                 # Sygnalizacja: Gracz 2 zapisał dane (podnosi semafor 2)
-                sem2.release() 
+                sem_p2_wrote.release() 
                 
                 print("Czekam na odczyt mojego wyboru przez Gracza 1...")
                 # Oczekiwanie: Aż Gracz 1 odczyta wybór Gracza 2 (opuszcza semafor 3)
                 # Jest to konieczne, aby Gracz 1 zdążył przeczytać PW2 zanim Gracz 2 przejdzie dalej.
-                sem3.acquire() 
+                sem_p1_read.acquire() 
                 
                 # 4. Gracz 2 odczytuje wybór Gracza 1 z pamięci PW1
-                opponent_choice = czytaj(shm1)
+                opponent_choice = read_from_shared_memory(shared_memory_p1)
                 print(f"Gracz 1 wybrał: {opponent_choice}")
                 print(f"Mój wybór: {my_choice}")
                 
@@ -161,11 +161,11 @@ def main():
                 
                 # Sygnalizacja: Gracz 2 zakończył odczyt (podnosi semafor 4)
                 # To zwalnia barierę dla Gracza 1.
-                sem4.release() 
+                sem_p2_read.release() 
 
         # Podsumowanie gry po 3 turach
         print("\n--- Koniec gry ---")
-        if player_num == 1:
+        if player_number == 1:
             print(f"Wynik sumaryczny: Gracz 1 wygrał {wins} razy.")
         else:
             print(f"Wynik sumaryczny: Gracz 2 wygrał {wins} razy.")
@@ -174,15 +174,15 @@ def main():
         print(f"Wystąpił błąd: {e}")
     finally:
         # Sprzątanie zasobów - wykonuje tylko Gracz 1 (właściciel)
-        if player_num == 1:
+        if player_number == 1:
             print("Usuwanie zasobów...")
             try:
-                shm1.remove()
-                shm2.remove()
-                sem1.remove()
-                sem2.remove()
-                sem3.remove()
-                sem4.remove()
+                shared_memory_p1.remove()
+                shared_memory_p2.remove()
+                sem_p1_wrote.remove()
+                sem_p2_wrote.remove()
+                sem_p1_read.remove()
+                sem_p2_read.remove()
             except:
                 pass
 
